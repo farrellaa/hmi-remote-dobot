@@ -7,20 +7,24 @@ const socket = io.connect("http://localhost:3001");
 function App() {
   // --- STATE DATA ---
   const [connection, setConnection] = useState(false);
-  const [status, setStatus] = useState("Idle");
+  const [status, setStatus] = useState("Idle"); // Idle, Running, Emergency
   
-  // Data Queue (Antrian)
-  const [queue, setQueue] = useState([]);
+  // Data History (Hasil deteksi/proses sebelumnya)
+  const [history, setHistory] = useState([
+    { id: 1, color: 'Red', target: 'Zone A', time: '14:05' },
+    { id: 2, color: 'Blue', target: 'Zone C', time: '14:10' },
+  ]);
   
-  // Data Sensor (Simulasi Koordinat)
+  // Data Telemetry (Koordinat & Aktuator)
   const [telemetry, setTelemetry] = useState({
     x: 245.50, y: -120.20, z: 45.00, r: 12.5,
-    gripper: false
+    gripper: false,
+    conveyorSpeed: 0
   });
 
-  // Data Counter
+  // Data Summary (Counter)
   const [counters, setCounters] = useState({
-    red: 0, green: 0, blue: 0, yellow: 0
+    red: 2, green: 0, blue: 1, yellow: 0
   });
 
   // --- LOGIC SOCKET ---
@@ -28,220 +32,176 @@ function App() {
     socket.on("connect", () => setConnection(true));
     socket.on("disconnect", () => setConnection(false));
 
-    // Menerima update dari Backend (yang meneruskan dari MQTT Dobot)
-    socket.on("dobot_status", (data) => {
+    // Menerima update real-time dari Backend
+    socket.on("dobot_update", (data) => {
       if(data.status) setStatus(data.status);
-      if(data.queue) setQueue(data.queue);
-      // Jika nanti ada data telemetry/counter dari python, handle disini
-      // if(data.telemetry) setTelemetry(data.telemetry); 
+      if(data.telemetry) setTelemetry(data.telemetry);
+      if(data.history) setHistory(data.history);
+      if(data.counters) setCounters(data.counters);
     });
 
-    return () => socket.off("dobot_status");
+    return () => socket.off("dobot_update");
   }, []);
 
-  // Fungsi Kirim Perintah ke Backend
-  const sendCommand = (actionType, payload) => {
-    console.log("Mengirim:", actionType, payload);
-    socket.emit("send_command", { action: actionType, ...payload });
+  // Fungsi Emergency Stop
+  const triggerEmergencyStop = () => {
+    console.warn("EMERGENCY STOP TRIGGERED");
+    socket.emit("send_command", { action: 'emergency_stop' });
+    setStatus("EMERGENCY");
   };
 
-  // Helper Warna
-  const getColorClass = (color) => {
+  // Helper Warna untuk Card
+  const getColorHex = (color) => {
     const map = { 
-      'Merah': 'bg-red-500', 'Red': 'bg-red-500',
-      'Hijau': 'bg-green-500', 'Green': 'bg-green-500',
-      'Biru': 'bg-blue-500', 'Blue': 'bg-blue-500',
-      'Kuning': 'bg-yellow-500', 'Yellow': 'bg-yellow-500'
+      'Red': '#ef4444', 'Green': '#22c55e', 
+      'Blue': '#3b82f6', 'Yellow': '#eab308' 
     };
-    return map[color] || 'bg-gray-500';
+    return map[color] || '#6b7280';
   };
-
-  const activeTask = queue.length > 0 ? queue[0] : null;
-  const pendingTasks = queue.length > 1 ? queue.slice(1) : [];
 
   return (
-    <div className="bg-background-light dark:bg-background-dark font-display text-text-main dark:text-white min-h-screen flex flex-col overflow-hidden transition-colors duration-300">
+    <div className="bg-[#0f1115] text-slate-200 min-h-screen flex flex-col font-sans overflow-hidden">
       
       {/* --- HEADER --- */}
-      <header className="w-full h-16 bg-surface-light dark:bg-surface-dark border-b border-border-light dark:border-border-dark flex items-center justify-between px-6 shrink-0 z-10">
+      <header className="w-full h-20 bg-[#161920] border-b border-white/5 flex items-center justify-between px-8 shrink-0">
         <div className="flex items-center gap-4">
-          <div className="size-10 bg-primary/10 rounded-lg flex items-center justify-center text-primary">
-            <span className="material-symbols-outlined text-[24px]">precision_manufacturing</span>
+          <div className="p-2.5 bg-blue-500/10 rounded-xl border border-blue-500/20">
+            <span className="material-symbols-outlined text-blue-400 text-3xl">monitoring</span>
           </div>
-          <div className="flex flex-col">
-            <h1 className="text-lg font-bold leading-tight tracking-tight text-text-main dark:text-white">Dobot Control</h1>
-            <span className="text-xs font-medium text-text-sub uppercase tracking-wider">HMI Remote System</span>
+          <div>
+            <h1 className="text-xl font-black tracking-tight text-white uppercase">Dobot Magician</h1>
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-[0.2em]">Remote Monitoring System</p>
           </div>
         </div>
         
-        {/* Indikator Status Kanan Atas */}
-        <div className="flex items-center gap-4">
-          <div className="hidden md:flex items-center gap-6 mr-4 border-r border-border-light dark:border-border-dark pr-6 h-8">
-            <div className="flex flex-col items-end">
-              <span className="text-[10px] font-bold text-text-sub uppercase">Connection</span>
-              <span className={`text-xs font-medium ${connection ? 'text-green-500' : 'text-red-500'}`}>
-                {connection ? 'Connected' : 'Disconnected'}
+        <div className="flex items-center gap-6">
+          <div className="flex flex-col items-end">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Network Status</span>
+            <div className="flex items-center gap-2">
+              <div className={`size-2 rounded-full ${connection ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500'}`}></div>
+              <span className={`text-xs font-bold ${connection ? 'text-green-400' : 'text-red-400'}`}>
+                {connection ? 'STABLE' : 'OFFLINE'}
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/20 px-3 py-1.5 rounded-full">
-            <div className={`size-2 rounded-full bg-green-500 ${status === 'Moving' ? 'animate-pulse' : ''}`}></div>
-            <span className="text-xs font-bold text-green-700 dark:text-green-400 uppercase tracking-wide">
-              {status}
-            </span>
+          <div className={`px-4 py-2 rounded-lg border font-black text-sm ${status === 'EMERGENCY' ? 'bg-red-500/10 border-red-500 text-red-500' : 'bg-blue-500/10 border-blue-500/20 text-blue-400'}`}>
+            {status.toUpperCase()}
           </div>
         </div>
       </header>
 
-      {/* --- MAIN DASHBOARD --- */}
-      <main className="flex-1 overflow-hidden p-6 w-full max-w-[1600px] mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-full">
+      {/* --- MAIN CONTENT --- */}
+      <main className="flex-1 p-6 grid grid-cols-12 gap-6 overflow-hidden max-w-[1800px] mx-auto w-full">
+        
+        {/* KIRI: HISTORY LOG (Recycler View Style) */}
+        <section className="col-span-12 lg:col-span-4 flex flex-col gap-4 overflow-hidden">
+          <div className="flex items-center justify-between px-2">
+            <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <span className="material-symbols-outlined text-sm">history</span> Process History
+            </h2>
+            <span className="text-[10px] bg-white/5 px-2 py-1 rounded text-slate-500">{history.length} Items</span>
+          </div>
           
-          {/* KOLOM KIRI: ANTRIAN TUGAS */}
-          <section className="lg:col-span-8 flex flex-col gap-4 h-full overflow-hidden">
-            <div className="flex items-center justify-between shrink-0">
-              <h2 className="text-xl font-bold tracking-tight">Task Queue</h2>
-              <div className="flex gap-2">
-                {/* Tombol Kontrol Manual */}
-                <button onClick={() => sendCommand('add_queue', { color: 'Merah', target: 'A' })} 
-                  className="flex items-center gap-1 text-xs font-medium bg-red-500/10 text-red-500 border border-red-500/20 px-3 py-1.5 rounded hover:bg-red-500/20 transition font-bold">
-                  <span className="material-symbols-outlined text-[16px]">add</span> Red Task
-                </button>
-                <button onClick={() => sendCommand('add_queue', { color: 'Hijau', target: 'B' })} 
-                  className="flex items-center gap-1 text-xs font-medium bg-green-500/10 text-green-500 border border-green-500/20 px-3 py-1.5 rounded hover:bg-green-500/20 transition font-bold">
-                  <span className="material-symbols-outlined text-[16px]">add</span> Green Task
-                </button>
-                <button onClick={() => sendCommand('add_queue', { color: 'Biru', target: 'C' })} 
-                  className="flex items-center gap-1 text-xs font-medium bg-blue-500/10 text-blue-500 border border-blue-500/20 px-3 py-1.5 rounded hover:bg-blue-500/20 transition font-bold">
-                  <span className="material-symbols-outlined text-[16px]">add</span> Blue Task
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto custom-scrollbar bg-gray-50/50 dark:bg-black/20 border border-border-light dark:border-border-dark rounded-xl p-4 shadow-inner space-y-4">
-              
-              {/* KARTU AKTIF (ACTIVE JOB) */}
-              {activeTask ? (
-                <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-primary/50 shadow-sm p-5 relative overflow-hidden group">
-                  <div className="absolute top-0 left-0 w-1 h-full bg-primary"></div>
-                  <div className="flex flex-col md:flex-row gap-6">
-                    <div className="flex-1 flex flex-col gap-3">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="bg-primary/20 text-primary-dark dark:text-primary text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">Running</span>
-                      </div>
-                      <div>
-                        <h3 className="text-2xl font-bold mb-1">Processing Task</h3>
-                        <p className="text-text-sub text-sm">Target Location: {activeTask.target}</p>
-                      </div>
-                      <div className="flex items-center gap-4 mt-2">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] text-text-sub uppercase font-bold">Color</span>
-                          <div className="flex items-center gap-1.5 font-medium">
-                            <div className={`size-3 rounded-full ${getColorClass(activeTask.color)}`}></div> {activeTask.color}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+          <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+            {history.map((item) => (
+              <div key={item.id} className="bg-[#161920] border border-white/5 p-4 rounded-xl hover:border-white/20 transition-all flex items-center justify-between group">
+                <div className="flex items-center gap-4">
+                  <div className="size-10 rounded-lg flex items-center justify-center border border-white/5 bg-white/[0.02]" style={{ borderColor: `${getColorHex(item.color)}44` }}>
+                    <div className="size-3 rounded-full shadow-lg" style={{ backgroundColor: getColorHex(item.color), boxShadow: `0 0 10px ${getColorHex(item.color)}` }}></div>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-white text-sm">Color: {item.color}</h4>
+                    <p className="text-xs text-slate-500">Target: {item.target}</p>
                   </div>
                 </div>
-              ) : (
-                <div className="flex items-center justify-center h-32 border-2 border-dashed border-border-dark rounded-xl text-text-sub">
-                  Waiting for command...
-                </div>
-              )}
-
-              {/* LIST ANTRIAN (PENDING) */}
-              <div className="space-y-3">
-                {pendingTasks.map((task, idx) => (
-                  <div key={idx} className="bg-surface-light dark:bg-surface-dark p-4 rounded-lg border border-border-light dark:border-border-dark flex items-center justify-between hover:border-primary/30 transition-colors">
-                    <div className="flex items-center gap-4">
-                      <div className="size-10 rounded bg-background-light dark:bg-background-dark flex items-center justify-center text-text-sub">
-                        <span className="material-symbols-outlined">pending</span>
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-sm">Queue #{idx + 1}</h4>
-                        <p className="text-xs text-text-sub">Target: {task.target}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-6">
-                      <div className="flex items-center gap-2">
-                        <div className={`size-2 rounded-full ${getColorClass(task.color)}`}></div>
-                        <span className="text-xs font-mono text-text-sub">{task.color}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                <span className="text-[10px] font-mono text-slate-600">{item.time}</span>
               </div>
+            ))}
+          </div>
+        </section>
 
-            </div>
-          </section>
+        {/* KANAN: SUMMARY & TELEMETRY */}
+        <section className="col-span-12 lg:col-span-8 flex flex-col gap-6">
+          
+          {/* TOP RIGHT: SUMMARY COUNTERS */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <SummaryCard label="Red" count={counters.red} color="bg-red-500" />
+            <SummaryCard label="Green" count={counters.green} color="bg-green-500" />
+            <SummaryCard label="Blue" count={counters.blue} color="bg-blue-500" />
+            <SummaryCard label="Yellow" count={counters.yellow} color="bg-yellow-500" />
+          </div>
 
-          {/* KOLOM KANAN: MONITORING */}
-          <aside className="lg:col-span-4 flex flex-col gap-4 h-full">
-            
-            {/* COUNTERS */}
-            <div className="flex flex-col gap-3">
-              <h2 className="text-xl font-bold tracking-tight">Output Counters</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <CounterBox color="bg-red-500" count={counters.red} label="Red" />
-                <CounterBox color="bg-green-500" count={counters.green} label="Green" />
-                <CounterBox color="bg-blue-500" count={counters.blue} label="Blue" />
-                <CounterBox color="bg-yellow-500" count={counters.yellow} label="Yellow" />
-              </div>
+          {/* BOTTOM RIGHT: TELEMETRY & E-STOP */}
+          <div className="flex-1 bg-[#161920] border border-white/5 rounded-2xl p-8 flex flex-col relative overflow-hidden shadow-2xl">
+            {/* Dekorasi Background */}
+            <div className="absolute top-0 right-0 p-8 opacity-5">
+              <span className="material-symbols-outlined text-[120px]">precision_manufacturing</span>
             </div>
 
-            {/* KOORDINAT & KONTROL DARURAT */}
-            <div className="flex flex-col gap-3 mt-2 flex-1">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold tracking-tight">Telemetry</h2>
-                <span className="text-[10px] text-text-sub bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark px-2 py-0.5 rounded uppercase">Live</span>
-              </div>
-              
-              <div className="bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-xl p-5 flex flex-col gap-5 shadow-sm h-full">
-                <div className="grid grid-cols-1 gap-4">
-                  <CoordinateRow label="X" value={telemetry.x} />
-                  <CoordinateRow label="Y" value={telemetry.y} />
-                  <CoordinateRow label="Z" value={telemetry.z} />
-                </div>
+            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-8 flex items-center gap-2">
+              <span className="material-symbols-outlined text-sm text-blue-400">sensors</span> Real-time Telemetry
+            </h3>
 
-                <div className="mt-auto pt-4 border-t border-border-light dark:border-border-dark">
-                  <div className="grid grid-cols-2 gap-2">
-                    <button onClick={() => sendCommand('calibrate', {})} className="w-full py-2 rounded bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark hover:bg-gray-100 dark:hover:bg-border-dark text-xs font-bold uppercase transition text-text-main dark:text-white">
-                      Homing
-                    </button>
-                    <button onClick={() => sendCommand('emergency_stop', {})} className="w-full py-2 rounded bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 text-xs font-bold uppercase transition animate-pulse">
-                      STOP
-                    </button>
-                  </div>
-                </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
+              <TelemetryValue label="Coordinate X" value={telemetry.x} unit="mm" />
+              <TelemetryValue label="Coordinate Y" value={telemetry.y} unit="mm" />
+              <TelemetryValue label="Coordinate Z" value={telemetry.z} unit="mm" />
+              <TelemetryValue label="Rotation R" value={telemetry.r} unit="°" />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-auto">
+              <div className="bg-white/[0.02] border border-white/5 p-4 rounded-xl flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase">Gripper Status</span>
+                <span className={`text-sm font-black ${telemetry.gripper ? 'text-blue-400' : 'text-slate-600'}`}>
+                  {telemetry.gripper ? 'HOLDING' : 'RELEASED'}
+                </span>
+              </div>
+              <div className="bg-white/[0.02] border border-white/5 p-4 rounded-xl flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase">Conv. Speed</span>
+                <span className="text-sm font-black text-white">
+                  {telemetry.conveyorSpeed} <span className="text-[10px] font-normal text-slate-500">mm/s</span>
+                </span>
               </div>
             </div>
-          </aside>
-        </div>
+
+            {/* EMERGENCY STOP */}
+            <button 
+              onClick={triggerEmergencyStop}
+              className="mt-8 w-full py-6 rounded-2xl bg-red-600 hover:bg-red-700 text-white flex flex-col items-center justify-center gap-1 transition-all active:scale-[0.98] shadow-[0_10px_40px_-10px_rgba(220,38,38,0.5)] group"
+            >
+              <span className="material-symbols-outlined text-3xl group-hover:scale-125 transition-transform duration-300">dangerous</span>
+              <span className="text-sm font-black uppercase tracking-[0.3em]">Emergency Stop</span>
+            </button>
+          </div>
+        </section>
+
       </main>
     </div>
   );
 }
 
-// --- SUB COMPONENTS (Agar kode lebih rapi) ---
-const CounterBox = ({ color, count, label }) => (
-  <div className="bg-surface-light dark:bg-surface-dark p-4 rounded-lg border border-border-light dark:border-border-dark flex flex-col items-center justify-center relative overflow-hidden shadow-sm">
-    <div className={`absolute top-0 left-0 w-full h-1 ${color}`}></div>
-    <span className="text-3xl font-bold text-text-main dark:text-white mb-1">{count}</span>
-    <div className="flex items-center gap-1.5">
-      <div className={`size-2 rounded-full ${color}`}></div>
-      <span className="text-xs font-medium text-text-sub uppercase">{label}</span>
-    </div>
-  </div>
-);
+// --- SUB-COMPONENTS ---
 
-const CoordinateRow = ({ label, value }) => (
-  <div className="flex items-center justify-between p-3 rounded-lg bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark">
-    <div className="flex items-center gap-3">
-      <div className="size-8 rounded bg-surface-light dark:bg-surface-dark flex items-center justify-center font-bold text-text-sub border border-border-light dark:border-border-dark shadow-sm">{label}</div>
+function SummaryCard({ label, count, color }) {
+  return (
+    <div className="bg-[#161920] border border-white/5 p-5 rounded-2xl relative overflow-hidden group hover:border-white/10 transition-all">
+      <div className={`absolute top-0 left-0 h-1 w-full ${color} opacity-50`}></div>
+      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">{label}</span>
+      <span className="text-3xl font-black text-white">{count}</span>
     </div>
-    <span className="text-xl font-mono font-medium tracking-tight text-text-main dark:text-white">{value}</span>
-  </div>
-);
+  );
+}
+
+function TelemetryValue({ label, value, unit }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{label}</span>
+      <div className="flex items-baseline gap-1">
+        <span className="text-3xl font-mono font-medium text-white tracking-tighter">{value.toFixed(2)}</span>
+        <span className="text-xs text-slate-600 font-bold">{unit}</span>
+      </div>
+    </div>
+  );
+}
 
 export default App;
