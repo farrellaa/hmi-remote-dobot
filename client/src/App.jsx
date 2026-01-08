@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import io from 'socket.io-client';
 
-// Pastikan Backend (server/index.js) sudah jalan di port 3001
+// Pastikan Backend (server/index.js) di Laptop sudah jalan di port 3001
 const socket = io.connect("http://localhost:3001");
 
 function App() {
@@ -9,7 +9,7 @@ function App() {
   const [connection, setConnection] = useState(false);
   const [status, setStatus] = useState("Idle"); // Idle, Running, Emergency
   
-  // Data History (Hasil deteksi/proses sebelumnya)
+  // Data History (Hasil deteksi dari RevPi)
   const [history, setHistory] = useState([
     { id: 1, color: 'Red', target: 'Zone A', time: '14:05' },
     { id: 2, color: 'Blue', target: 'Zone C', time: '14:10' },
@@ -17,33 +17,52 @@ function App() {
   
   // Data Telemetry (Koordinat & Aktuator)
   const [telemetry, setTelemetry] = useState({
-    x: 245.50, y: -120.20, z: 45.00, r: 12.5,
+    x: 0, y: 0, z: 0, r: 0,
     gripper: false,
     conveyorSpeed: 0
   });
 
   // Data Summary (Counter)
   const [counters, setCounters] = useState({
-    red: 2, green: 0, blue: 1, yellow: 0
+    red: 0, green: 0, blue: 0, yellow: 0
   });
 
-  // --- LOGIC SOCKET ---
+  // --- LOGIC SOCKET (SINKRONISASI DENGAN REVPI VIA BRIDGE) ---
   useEffect(() => {
+    // 1. Monitor Koneksi ke Bridge Laptop
     socket.on("connect", () => setConnection(true));
     socket.on("disconnect", () => setConnection(false));
 
-    // Menerima update real-time dari Backend
+    // 2. Mendengarkan data dari RevPi (yang dipancarkan setiap 5 detik)
     socket.on("dobot_update", (data) => {
-      if(data.status) setStatus(data.status);
-      if(data.telemetry) setTelemetry(data.telemetry);
-      if(data.history) setHistory(data.history);
-      if(data.counters) setCounters(data.counters);
+      // Update status sistem (Running/Idle/Emergency)
+      if (data.status) setStatus(data.status);
+      
+      // Update koordinat x, y, z, r
+      if (data.telemetry) {
+        setTelemetry(data.telemetry);
+      }
+      
+      // Update history list jika ada data baru
+      if (data.history) {
+        setHistory(data.history);
+      }
+      
+      // Update counters (jumlah warna)
+      if (data.counters) {
+        setCounters(data.counters);
+      }
     });
 
-    return () => socket.off("dobot_update");
+    // Cleanup saat komponen di-unmount
+    return () => {
+      socket.off("connect");
+      socket.off("disconnect");
+      socket.off("dobot_update");
+    };
   }, []);
 
-  // Fungsi Emergency Stop
+  // Fungsi Emergency Stop (Mengirim perintah balik ke RevPi)
   const triggerEmergencyStop = () => {
     console.warn("EMERGENCY STOP TRIGGERED");
     socket.emit("send_command", { action: 'emergency_stop' });
@@ -84,8 +103,8 @@ function App() {
               </span>
             </div>
           </div>
-          <div className={`px-4 py-2 rounded-lg border font-black text-sm ${status === 'EMERGENCY' ? 'bg-red-500/10 border-red-500 text-red-500' : 'bg-blue-500/10 border-blue-500/20 text-blue-400'}`}>
-            {status.toUpperCase()}
+          <div className={`px-4 py-2 rounded-lg border font-black text-sm uppercase ${status === 'EMERGENCY' ? 'bg-red-500/10 border-red-500 text-red-500' : 'bg-blue-500/10 border-blue-500/20 text-blue-400'}`}>
+            {status}
           </div>
         </div>
       </header>
@@ -93,7 +112,7 @@ function App() {
       {/* --- MAIN CONTENT --- */}
       <main className="flex-1 p-6 grid grid-cols-12 gap-6 overflow-hidden max-w-[1800px] mx-auto w-full">
         
-        {/* KIRI: HISTORY LOG (Recycler View Style) */}
+        {/* KIRI: HISTORY LOG */}
         <section className="col-span-12 lg:col-span-4 flex flex-col gap-4 overflow-hidden">
           <div className="flex items-center justify-between px-2">
             <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
@@ -133,7 +152,6 @@ function App() {
 
           {/* BOTTOM RIGHT: TELEMETRY & E-STOP */}
           <div className="flex-1 bg-[#161920] border border-white/5 rounded-2xl p-8 flex flex-col relative overflow-hidden shadow-2xl">
-            {/* Dekorasi Background */}
             <div className="absolute top-0 right-0 p-8 opacity-5">
               <span className="material-symbols-outlined text-[120px]">precision_manufacturing</span>
             </div>
@@ -181,7 +199,6 @@ function App() {
 }
 
 // --- SUB-COMPONENTS ---
-
 function SummaryCard({ label, count, color }) {
   return (
     <div className="bg-[#161920] border border-white/5 p-5 rounded-2xl relative overflow-hidden group hover:border-white/10 transition-all">
@@ -193,11 +210,12 @@ function SummaryCard({ label, count, color }) {
 }
 
 function TelemetryValue({ label, value, unit }) {
+  const numericValue = typeof value === 'number' ? value : 0;
   return (
     <div className="flex flex-col gap-1">
       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{label}</span>
       <div className="flex items-baseline gap-1">
-        <span className="text-3xl font-mono font-medium text-white tracking-tighter">{value.toFixed(2)}</span>
+        <span className="text-3xl font-mono font-medium text-white tracking-tighter">{numericValue.toFixed(2)}</span>
         <span className="text-xs text-slate-600 font-bold">{unit}</span>
       </div>
     </div>
