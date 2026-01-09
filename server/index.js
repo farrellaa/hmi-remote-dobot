@@ -18,16 +18,21 @@ const mqttClient = mqtt.connect(`mqtt://${REVPI_IP}:1883`);
 
 mqttClient.on('connect', () => {
     console.log("✅ Terhubung ke MQTT Broker di RevPi");
-    mqttClient.subscribe('dobot/telemetry');
+    mqttClient.subscribe(['dobot/telemetry', 'dobot/history']); 
 });
 
 mqttClient.on('message', (topic, message) => {
     try {
-        const data = JSON.parse(message.toString());
-        // --- TAMBAHKAN LOG INI ---
-        console.log("📥 Data masuk dari RevPi:", data); 
+        const payload = JSON.parse(message.toString());
         
-        io.emit("dobot_update", data);
+        if (topic === 'dobot/history') {
+            // Jika data dari topik history, kirim event "history_update"
+            io.emit("history_update", payload.history_item);
+            console.log("📜 History baru diterima:", payload.history_item);
+        } else {
+            // Jika data telemetry, tetap gunakan event "dobot_update"
+            io.emit("dobot_update", payload);
+        }
     } catch (e) {
         console.log("❌ Error parsing data:", e);
     }
