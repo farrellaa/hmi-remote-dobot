@@ -27,40 +27,40 @@ function App() {
     red: 0, green: 0, blue: 0, yellow: 0
   });
 
-  // --- LOGIC SOCKET (SINKRONISASI DENGAN REVPI VIA BRIDGE) ---
   useEffect(() => {
-    // 1. Monitor Koneksi ke Bridge Laptop
     socket.on("connect", () => setConnection(true));
     socket.on("disconnect", () => setConnection(false));
 
-    // 2. Mendengarkan data dari RevPi (yang dipancarkan setiap 5 detik)
+    // 1. Mendengarkan Telemetry (X, Y, Z, R)
     socket.on("dobot_update", (data) => {
-      // Update status sistem (Running/Idle/Emergency)
-      if (data.status) setStatus(data.status);
-      
-      // Update koordinat x, y, z, r
-      if (data.telemetry) {
-        setTelemetry(data.telemetry);
-      }
-      
-      // Update history list jika ada data baru
-      if (data.history) {
-        setHistory(data.history);
-      }
-      
-      // Update counters (jumlah warna)
-      if (data.counters) {
-        setCounters(data.counters);
-      }
+        if (data.telemetry) setTelemetry(data.telemetry);
+        if (data.status) setStatus(data.status);
     });
 
-    // Cleanup saat komponen di-unmount
+    // 2. Mendengarkan History & Update Counter
+    socket.on("history_update", (newItem) => {
+        // Tambahkan item baru ke posisi paling atas di list history
+        setHistory((prev) => [newItem, ...prev]);
+
+        // Update Counter berdasarkan warna yang terdeteksi secara otomatis
+        const colorKey = newItem.color.toLowerCase(); // "Merah" -> "merah"
+        // Mapping nama warna Indonesia ke kunci state Inggris
+        const colorMap = { "merah": "red", "hijau": "green", "biru": "blue", "kuning": "yellow" };
+        const key = colorMap[colorKey] || colorKey;
+
+        setCounters((prev) => ({
+            ...prev,
+            [key]: prev[key] + 1
+        }));
+    });
+
     return () => {
-      socket.off("connect");
-      socket.off("disconnect");
-      socket.off("dobot_update");
+        socket.off("connect"); // Clean up
+        socket.off("disconnect"); // Clean up
+        socket.off("dobot_update");
+        socket.off("history_update");
     };
-  }, []);
+}, []);
 
   // Fungsi Emergency Stop (Mengirim perintah balik ke RevPi)
   const triggerEmergencyStop = () => {
